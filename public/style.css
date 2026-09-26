@@ -417,7 +417,7 @@ body {
 .merge-counts { color: #4a5568; }
 
 /* 批量同文片段指派确认弹窗 */
-#popupBatch { width: 100%; }
+#popupBatch, #popupCitation { width: 100%; }
 .batch-frag {
   font-weight: 600;
   background: #fff8e0;
@@ -434,6 +434,61 @@ body {
 .batch-clash-sel { color: #9a6700; }
 .batch-clash-ex { color: #cf222e; }
 .batch-note { font-size: 12px; color: #8a94a0; line-height: 1.6; }
+
+/* 引文列表 */
+.citation-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.citation-count { font-size: 12.5px; color: #4a5568; }
+.citation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.citation-item {
+  border: 1px solid #e1e6ec;
+  border-left: 3px solid #1f6feb;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fbfcfe;
+}
+.citation-row { display: flex; align-items: flex-start; gap: 8px; }
+.citation-idx {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #eef4ff;
+  color: #1f6feb;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.citation-body {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: pointer;
+}
+.citation-body:hover { color: #1f6feb; }
+.citation-meta { margin-top: 4px; margin-left: 30px; font-size: 11.5px; color: #8a94a0; }
+.citation-empty { font-size: 12px; color: #a0a8b0; list-style: none; }
+.citation-del {
+  flex: none;
+  border: 1px solid #d0d7de;
+  background: #fff;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.citation-del:hover { background: #f0f3f6; border-color: #cf222e; color: #cf222e; }
 
 .toast {
   position: fixed;

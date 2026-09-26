@@ -25,11 +25,13 @@
     currentMap: [],    // { id, kind, oStart, oEnd, pStart, pEnd, personId, explicit, exId }
     candidates: [],    // 敏感信息巡检候选（随原稿一次性离线扫描，detectSensitive 结果）
     inspect: [],       // 候选依据最新映射判定后的结果（每次渲染重算，含 cid/status/leakRanges）
-    inspectFilter: 'all' // 巡检侧栏状态筛选：all / leaking / kept / anonymized
+    inspectFilter: 'all', // 巡检侧栏状态筛选：all / leaking / kept / anonymized
+    citations: []      // 引文：{ id, start, end } 原稿非空半开区间（按添加顺序），引文正文每次渲染重算
   };
   var personSeq = 1;
   var selSeq = 1;
   var excSeq = 1;
+  var citSeq = 1;
 
   var PALETTE = ['#ffe08a', '#b5e0a8', '#a8d8ff', '#ffc6c6', '#e3c6ff', '#ffd9a8', '#a8e6e0', '#f5c6e0'];
 
@@ -49,6 +51,7 @@
   var batchDialog = $('batchDialog'), batchFrag = $('batchFrag'), batchTargetEl = $('batchTarget');
   var batchTotal = $('batchTotal'), batchOk = $('batchOk');
   var batchClashSel = $('batchClashSel'), batchClashEx = $('batchClashEx');
+  var citationList = $('citationList');
   var toastEl = $('toast');
 
   // ---------- 工具 ----------
@@ -217,6 +220,7 @@
     renderExceptions(activeExIds);
     renderMapping(result.map);
     renderStats(result.map);
+    renderCitations(result.map);
 
     $('btnUndo').disabled = state.history.length === 0;
     $('btnCopy').disabled = !state.text;
@@ -559,6 +563,94 @@
         ' · 保留原文 ' + keptN + ' · 已匿名 ' + (state.inspect.length - leakN - keptN) + '）';
     }
     statsEl.textContent = stats;
+  }
+
+  // ---------- 引文 ----------
+  // 引文只保存原稿非空半开区间 [start,end)（UTF-16 计数，与框选一致），按添加顺序排列；
+  // 引文正文由引擎 buildCitation 依据「当前最终映射」实时生成：
+  // 未替换段 / 保留原文段只截取区间内字符；与替换段有交集就输出完整代号，
+  // 边界落在替换段内部也不带入区间外原文。多条引文独立计算，允许重叠。
+  function buildCurrentCitation(c, map) {
+    return Anonymizer.buildCitation(state.text, c.start, c.end, state.persons, map);
+  }
+
+  function renderCitations(map) {
+    citationList.innerHTML = '';
+    if (!state.citations.length) {
+      var empty = document.createElement('li');
+      empty.className = 'citation-empty';
+      empty.textContent = '（暂无引文：在原稿框选片段后，于弹窗点「加入引文」）';
+      citationList.appendChild(empty);
+    } else {
+      state.citations.forEach(function (c, i) {
+        var li = document.createElement('li');
+        li.className = 'citation-item';
+
+        var row = document.createElement('div');
+        row.className = 'citation-row';
+        var idx = document.createElement('span');
+        idx.className = 'citation-idx';
+        idx.textContent = String(i + 1);
+        var body = document.createElement('span');
+        body.className = 'citation-body';
+        body.textContent = buildCurrentCitation(c, map);
+        body.title = '点击在原稿 / 预览中定位该引文区间';
+        var del = document.createElement('button');
+        del.className = 'citation-del';
+        del.title = '删除该引文（不影响人物规则、框选与例外）';
+        del.textContent = '删除';
+        del.addEventListener('click', function () { removeCitation(c.id); });
+        row.appendChild(idx);
+        row.appendChild(body);
+        row.appendChild(del);
+        li.appendChild(row);
+
+        var meta = document.createElement('div');
+        meta.className = 'citation-meta';
+        meta.textContent = '原稿区间 [' + c.start + ', ' + c.end + ')';
+        li.appendChild(meta);
+
+        // 点击正文定位该引文区间（按区间中点所在映射段高亮）
+        body.addEventListener('click', function () { locateOffsets(c.start, c.end); });
+
+        citationList.appendChild(li);
+      });
+    }
+    $('citationCount').textContent = '共 ' + state.citations.length + ' 条';
+    $('btnDownloadCitations').disabled = !state.citations.length;
+  }
+
+  function addCitation(start, end) {
+    if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start ||
+      start < 0 || end > state.text.length) {
+      toast('引文区间必须是非空且落在原稿内的半开区间');
+      return false;
+    }
+    state.citations.push({ id: citSeq++, start: start, end: end });
+    render();
+    toast('已加入引文（第 ' + state.citations.length + ' 条），随规则变化实时重算');
+    return true;
+  }
+
+  function removeCitation(id) {
+    state.citations = state.citations.filter(function (c) { return c.id !== id; });
+    render();
+  }
+
+  // 下载按列表顺序、空行分隔的 UTF-8 TXT，只含引文正文（不加序号与额外标记）
+  function downloadCitations(map) {
+    var content = state.citations.map(function (c) {
+      return buildCurrentCitation(c, map);
+    }).join('\n\n');
+    var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'citations.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
   }
 
   // ---------- 双向高亮 ----------
@@ -1020,6 +1112,22 @@
   // ---------- 批量同文指派弹窗 ----------
   $('popupBatch').addEventListener('click', openBatchDialog);
 
+  // ---------- 加入引文 ----------
+  // 引文与人物指派无关：直接把当前框选的非空半开区间存入引文列表，
+  // 正文随最终映射实时重算（框选弹窗随后关闭）
+  $('popupCitation').addEventListener('click', function () {
+    if (!pendingSel) return;
+    if (addCitation(pendingSel.start, pendingSel.end)) {
+      window.getSelection().removeAllRanges();
+      closePopup();
+    }
+  });
+
+  $('btnDownloadCitations').addEventListener('click', function () {
+    if (!state.citations.length) return;
+    downloadCitations(state.currentMap);
+  });
+
   $('batchConfirm').addEventListener('click', confirmBatch);
 
   $('batchCancel').addEventListener('click', closeBatchDialog);
@@ -1073,6 +1181,7 @@
     state.selections = [];
     state.exceptions = [];
     state.history = [];
+    state.citations = []; // 重新加载原稿时清空引文
     state.candidates = Anonymizer.detectSensitive(text); // 离线一次性扫描，随规则变化只重判级
     state.inspect = [];
     state.inspectFilter = 'all';
@@ -1089,8 +1198,8 @@
   }
 
   $('btnResetText').addEventListener('click', function () {
-    if ((state.persons.length || state.selections.length || state.exceptions.length) &&
-        !window.confirm('重新粘贴将清空当前所有人物规则、框选与例外，确定继续？')) return;
+    if ((state.persons.length || state.selections.length || state.exceptions.length || state.citations.length) &&
+        !window.confirm('重新粘贴将清空当前所有人物规则、框选、例外与引文，确定继续？')) return;
     textInput.value = state.text;
     editorSection.classList.add('hidden');
     inputSection.classList.remove('hidden');
@@ -1102,6 +1211,7 @@
     state.selections = [];
     state.exceptions = [];
     state.history = [];
+    state.citations = []; // 重新加载原稿时清空引文
     state.candidates = [];
     state.inspect = [];
     state.inspectFilter = 'all';

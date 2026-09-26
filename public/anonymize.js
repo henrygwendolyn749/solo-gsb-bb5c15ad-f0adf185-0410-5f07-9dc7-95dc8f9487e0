@@ -138,6 +138,47 @@
   }
 
   /**
+   * 基于最终匿名映射生成一条引文：取原稿非空半开区间 [start,end) 的「预览投影」。
+   *
+   * - 未被任何映射覆盖的空隙（未替换段）：只截取落在区间内的原文字符；
+   * - kind='keep'（保留原文例外）：只截取与区间相交部分的原文字符；
+   * - kind='replace'（替换段，含显式框选与称呼命中）：只要与区间有交集
+   *   （哪怕引文边界落在该段内部），就输出一次完整代号「【代号】」，
+   *   绝不带入该段区间外的原文；
+   * - 多条引文各自独立调用，允许相互重叠。
+   *
+   * 偏移量一律沿用原稿的字符计数（JS 字符串索引，即 UTF-16 码元），
+   * 与框选 / 例外 / 映射表的计数方式一致。
+   *
+   * @param {string} text 原稿
+   * @param {number} start 引文起点（含）
+   * @param {number} end 引文终点（不含），要求 0 <= start < end <= text.length
+   * @param {Array} persons [{ id, codename }]
+   * @param {Array} map anonymize 返回的映射（按 oStart 排序、互不重叠）
+   * @returns {string} 引文正文（匿名后）；区间非法时返回空串
+   */
+  function buildCitation(text, start, end, persons, map) {
+    if (!validRange(text, start, end)) return '';
+    var byId = {};
+    (persons || []).forEach(function (p) { byId[p.id] = p; });
+    var out = '';
+    var cursor = start;
+    (map || []).forEach(function (m) {
+      if (m.oEnd <= start || m.oStart >= end) return; // 与引文区间无交集
+      if (m.oStart > cursor) out += text.slice(cursor, Math.min(m.oStart, end));
+      if (m.kind === 'keep') {
+        out += text.slice(Math.max(m.oStart, start), Math.min(m.oEnd, end));
+      } else {
+        var person = byId[m.personId];
+        out += '【' + (person ? person.codename : '') + '】';
+      }
+      cursor = Math.max(cursor, Math.min(m.oEnd, end));
+    });
+    if (cursor < end) out += text.slice(cursor, end);
+    return out;
+  }
+
+  /**
    * 批量同文片段指派：匹配与冲突分类（纯函数，不修改输入）。
    *
    * 匹配规则：按原稿从左到右取互不重叠的完全相同片段（从上一匹配末尾之后继续查找）。
@@ -303,6 +344,7 @@
 
   return {
     anonymize: anonymize,
+    buildCitation: buildCitation,
     planBatchAssign: planBatchAssign,
     detectSensitive: detectSensitive,
     classifyCandidates: classifyCandidates
