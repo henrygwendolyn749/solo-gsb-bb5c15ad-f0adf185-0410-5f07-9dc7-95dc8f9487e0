@@ -301,10 +301,46 @@
     });
   }
 
+  /**
+   * 依据最终匿名映射，把原稿区间 [start, end) 转成一条引文文本（纯函数）。
+   * 偏移均为 UTF-16 码元计数（与 JS 字符串下标一致），区间为左闭右开。
+   *
+   * 规则：
+   * - 未被任何映射覆盖的区间（原样照录段）与保留原文段：只截取区间内的原文字符；
+   * - 与替换段（称呼命中 / 显式框选）有交集：该段整体输出一次完整代号
+   *   （即预览中对应的【代号】），即使引文边界落在替换段内部；
+   *   替换段的原文一律不进入引文，区间外的原文也不会被带入。
+   *
+   * @param {string} text 原稿
+   * @param {string} preview anonymize 生成的预览文本
+   * @param {Array} map anonymize 返回的映射（按 oStart 排序、互不重叠）
+   * @param {number} start 引文起点（含）
+   * @param {number} end 引文终点（不含）
+   * @returns {string} 引文正文；区间非法时返回空串
+   */
+  function buildCitation(text, preview, map, start, end) {
+    if (!validRange(text, start, end)) return '';
+    var out = '';
+    var cursor = start;
+    (map || []).forEach(function (m) {
+      if (m.oEnd <= start || m.oStart >= end) return; // 与引文区间不相交
+      if (m.oStart > cursor) out += text.slice(cursor, Math.min(m.oStart, end)); // 空隙照录
+      if (m.kind === 'replace') {
+        out += preview.slice(m.pStart, m.pEnd); // 替换段：完整代号，只输出一次
+      } else {
+        out += text.slice(Math.max(start, m.oStart), Math.min(end, m.oEnd)); // 保留原文段：只取区间内
+      }
+      cursor = m.oEnd;
+    });
+    if (cursor < end) out += text.slice(cursor, end); // 末段空隙照录
+    return out;
+  }
+
   return {
     anonymize: anonymize,
     planBatchAssign: planBatchAssign,
     detectSensitive: detectSensitive,
-    classifyCandidates: classifyCandidates
+    classifyCandidates: classifyCandidates,
+    buildCitation: buildCitation
   };
 });

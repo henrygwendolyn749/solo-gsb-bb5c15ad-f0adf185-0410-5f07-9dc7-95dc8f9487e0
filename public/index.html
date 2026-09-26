@@ -80,6 +80,14 @@
         </table>
       </div>
     </section>
+
+    <section class="card">
+      <h2>引文列表 <span class="hint">（在原稿框选弹窗中点击「加入引文」即可收藏当前选区；按添加顺序排列、可删除、允许重叠；替换段以完整代号计入，随人物规则 / 框选 / 例外 / 撤销实时重算；点击引文可定位原稿）</span></h2>
+      <ul id="citationList" class="citation-list"></ul>
+      <div class="row">
+        <button id="btnDownloadCitations" class="btn" disabled>下载引文（UTF-8 TXT，按列表顺序、空行分隔）</button>
+      </div>
+    </section>
   </main>
 
   <!-- 框选后弹出的指派面板 -->
@@ -91,6 +99,7 @@
       <input id="popupAlias" placeholder="登记称呼（留空则仅此一处生效）">
     </div>
     <button id="popupBatch" class="btn" title="把全文中与所选片段完全相同的所有片段统一指派给该人物（可撤销）">批量指派全文相同片段…</button>
+    <button id="popupCite" class="btn" title="把所选区间加入引文列表：替换段以完整代号计入，随规则实时重算，可下载为 TXT">加入引文</button>
     <div class="popup-actions">
       <button id="popupOk" class="btn btn-primary">确定</button>
       <button id="popupCancel" class="btn">取消</button>

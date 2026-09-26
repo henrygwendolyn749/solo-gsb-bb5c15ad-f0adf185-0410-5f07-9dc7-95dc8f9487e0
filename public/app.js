@@ -10,6 +10,11 @@
  * 标记例外、恢复匿名、添加/删除/合并人物、框选、批量同文指派均进入同一个撤销栈；
  * 合并人物为原子操作：一次入栈，撤销时按原 ID、列表位置、称呼与全部关联区间精确恢复；
  * 批量同文指派同样整批一条记录：撤销即恢复操作前的区间集合与匿名预览。
+ *
+ * 引文列表：框选弹窗中可把当前选区「加入引文」，按添加顺序排列、可删除；
+ * 每条只保存原稿非空半开区间（UTF-16 计数），引文正文依据最终匿名映射实时重算——
+ * 未替换段与保留原文段只截取区间内字符，与替换段相交则输出一次完整代号；
+ * 可下载为按列表顺序、空行分隔的 UTF-8 TXT（只含引文正文）；重新加载原稿时清空。
  */
 (function () {
   'use strict';
@@ -25,11 +30,13 @@
     currentMap: [],    // { id, kind, oStart, oEnd, pStart, pEnd, personId, explicit, exId }
     candidates: [],    // 敏感信息巡检候选（随原稿一次性离线扫描，detectSensitive 结果）
     inspect: [],       // 候选依据最新映射判定后的结果（每次渲染重算，含 cid/status/leakRanges）
-    inspectFilter: 'all' // 巡检侧栏状态筛选：all / leaking / kept / anonymized
+    inspectFilter: 'all', // 巡检侧栏状态筛选：all / leaking / kept / anonymized
+    citations: []      // 引文列表 { id, start, end }：按添加顺序排列，区间为原稿非空半开区间（UTF-16 计数）
   };
   var personSeq = 1;
   var selSeq = 1;
   var excSeq = 1;
+  var citSeq = 1;
 
   var PALETTE = ['#ffe08a', '#b5e0a8', '#a8d8ff', '#ffc6c6', '#e3c6ff', '#ffd9a8', '#a8e6e0', '#f5c6e0'];
 
@@ -49,6 +56,7 @@
   var batchDialog = $('batchDialog'), batchFrag = $('batchFrag'), batchTargetEl = $('batchTarget');
   var batchTotal = $('batchTotal'), batchOk = $('batchOk');
   var batchClashSel = $('batchClashSel'), batchClashEx = $('batchClashEx');
+  var citationList = $('citationList');
   var toastEl = $('toast');
 
   // ---------- 工具 ----------
@@ -217,6 +225,7 @@
     renderExceptions(activeExIds);
     renderMapping(result.map);
     renderStats(result.map);
+    renderCitations();
 
     $('btnUndo').disabled = state.history.length === 0;
     $('btnCopy').disabled = !state.text;
@@ -559,6 +568,82 @@
         ' · 保留原文 ' + keptN + ' · 已匿名 ' + (state.inspect.length - leakN - keptN) + '）';
     }
     statsEl.textContent = stats;
+  }
+
+  // ---------- 引文列表 ----------
+  // 引文只保存原稿区间 [start, end)；引文正文在每次渲染时依据最新匿名映射重算：
+  // 未替换段与保留原文段只截取区间内字符，与替换段相交则输出一次完整代号。
+  // 人物规则、框选、例外、撤销等任何变化都会走 render()，引文随之实时重算。
+  function citationText(c) {
+    return Anonymizer.buildCitation(state.text, state.currentPreview, state.currentMap, c.start, c.end);
+  }
+
+  function addCitation(start, end) {
+    state.citations.push({ id: citSeq++, start: start, end: end });
+    render();
+    toast('已加入引文（第 ' + state.citations.length + ' 条）');
+  }
+
+  function removeCitation(id) {
+    state.citations = state.citations.filter(function (c) { return c.id !== id; });
+    render();
+  }
+
+  function renderCitations() {
+    citationList.innerHTML = '';
+    if (!state.citations.length) {
+      var empty = document.createElement('li');
+      empty.className = 'citation-empty';
+      empty.textContent = '（暂无引文：在原稿中框选片段后，于弹窗中点击「加入引文」）';
+      citationList.appendChild(empty);
+    } else {
+      state.citations.forEach(function (c, i) {
+        var li = document.createElement('li');
+        li.className = 'citation-item';
+
+        var head = document.createElement('div');
+        head.className = 'citation-head';
+        var no = document.createElement('span');
+        no.className = 'citation-no';
+        no.textContent = '引文 ' + (i + 1);
+        var range = document.createElement('span');
+        range.className = 'citation-range';
+        range.textContent = '原稿区间 [' + c.start + ', ' + c.end + ')';
+        var del = document.createElement('button');
+        del.className = 'citation-del';
+        del.title = '删除该引文';
+        del.textContent = '×';
+        del.addEventListener('click', function () { removeCitation(c.id); });
+        head.appendChild(no); head.appendChild(range); head.appendChild(del);
+        li.appendChild(head);
+
+        var body = document.createElement('div');
+        body.className = 'citation-body';
+        body.textContent = citationText(c); // 当前引文（随映射实时重算）
+        body.title = '点击定位原稿位置';
+        body.addEventListener('click', function () { locateOffsets(c.start, c.end); });
+        li.appendChild(body);
+
+        citationList.appendChild(li);
+      });
+    }
+    $('btnDownloadCitations').disabled = !state.citations.length;
+  }
+
+  // 下载：按列表顺序、空行分隔的 UTF-8 TXT，只含引文正文
+  function downloadCitations() {
+    if (!state.citations.length) return;
+    var bodies = state.citations.map(citationText);
+    var blob = new Blob([bodies.join('\n\n')], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '引文.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+    toast('已下载 ' + bodies.length + ' 条引文（UTF-8 TXT）');
   }
 
   // ---------- 双向高亮 ----------
@@ -972,7 +1057,7 @@
 
     var x = Math.min(info.rect.left, window.innerWidth - 270);
     var y = info.rect.bottom + 8;
-    if (y + 200 > window.innerHeight) y = info.rect.top - 210;
+    if (y + 240 > window.innerHeight) y = info.rect.top - 250;
     selPopup.style.left = Math.max(8, x) + 'px';
     selPopup.style.top = Math.max(8, y) + 'px';
     selPopup.classList.remove('hidden');
@@ -1016,6 +1101,17 @@
     window.getSelection().removeAllRanges();
     closePopup();
   });
+
+  // 加入引文：把当前框选区间存入引文列表（与人物指派互不影响，可重叠、按添加顺序排列）
+  $('popupCite').addEventListener('click', function () {
+    if (!pendingSel) return;
+    var start = pendingSel.start, end = pendingSel.end;
+    window.getSelection().removeAllRanges();
+    closePopup();
+    addCitation(start, end);
+  });
+
+  $('btnDownloadCitations').addEventListener('click', downloadCitations);
 
   // ---------- 批量同文指派弹窗 ----------
   $('popupBatch').addEventListener('click', openBatchDialog);
@@ -1073,6 +1169,7 @@
     state.selections = [];
     state.exceptions = [];
     state.history = [];
+    state.citations = []; // 重新加载原稿时清空引文
     state.candidates = Anonymizer.detectSensitive(text); // 离线一次性扫描，随规则变化只重判级
     state.inspect = [];
     state.inspectFilter = 'all';
@@ -1102,6 +1199,7 @@
     state.selections = [];
     state.exceptions = [];
     state.history = [];
+    state.citations = [];
     state.candidates = [];
     state.inspect = [];
     state.inspectFilter = 'all';
